@@ -1,0 +1,85 @@
+import streamlit as st
+import os
+from groq import Groq
+from dotenv import load_dotenv
+
+
+
+# 1. 載入環境變數 (安全保護)
+load_dotenv()
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# 網頁基本設定
+st.set_page_config(page_title="Ken's ChatGPT", layout="wide")
+st.title("🤖 我的專屬 ChatGPT")
+
+# --- 側邊欄：功能 1, 2, 3 ---
+with st.sidebar:
+    st.header("⚙️ 設定選項")
+    
+    # 功能 1：挑選 LLM 模型
+    model_option = st.selectbox(
+        "選擇模型", 
+        ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "llama3-8b-8192"]
+    )
+    
+    # 功能 2：自訂 System Prompt (定義 AI 人格)
+    system_prompt = st.text_area(
+        "System Prompt (系統提示詞)", 
+        value="你是一個親切且專業的助手。",
+        help="在這裡定義 AI 的身份，例如：你是一個資深土木工程師。"
+    )
+    
+    # 功能 3：自訂常用 API 參數
+    temperature = st.slider("Temperature (隨機性)", 0.0, 2.0, 0.7)
+    max_tokens = st.number_input("Max Tokens (最大長度)", 100, 4096, 1024)
+
+    # 在側邊欄加一個按鈕
+    if st.sidebar.button("🗑️ 清除對話紀錄"):
+        st.session_state.messages = []
+        st.rerun() # 重新整理網頁
+
+# --- 功能 5：交談短期記憶 ---
+# 如果 session_state 裡沒東西，就初始化它
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# 顯示之前的對話紀錄
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# --- 處理使用者輸入 ---
+if prompt := st.chat_input("說點什麼吧..."):
+    # 將使用者訊息加入記憶
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # 準備發送給 API 的訊息清單 (包含 System Prompt + 歷史紀錄)
+    api_messages = [{"role": "system", "content": system_prompt}] + st.session_state.messages
+
+    # --- 功能 4：Streaming (串流輸出) ---
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty() # 建立一個空位來放逐字產生的文字
+        full_response = ""
+        
+        # 呼叫 Groq API
+        completion = client.chat.completions.create(
+            model=model_option,
+            messages=api_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True # 開啟串流
+        )
+        
+        for chunk in completion:
+            content = chunk.choices[0].delta.content
+            if content:
+                full_response += content
+                response_placeholder.markdown(full_response + "▌") # 模擬打字機光標
+        
+        response_placeholder.markdown(full_response)
+    
+    # 將 AI 的回覆也加入記憶
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
